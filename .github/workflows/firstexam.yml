@@ -1,10 +1,12 @@
 name: My first example
 on: push
 jobs:
-   check-bats-version:
+  check-bats-version:
     runs-on: ubuntu-latest
     steps:
         - name: Welcome message
-        - run: echo "My first github actions pipeline"
-        - run: ls
-        - run: cat readme.md
+          run: echo "My first github actions pipeline"
+        - name: List files
+          run: ls
+        - name: Read file
+          run: cat readme.md
