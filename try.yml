@@ -1,0 +1,102 @@
+name: Unified Performance / UI Test Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      usecase_dir:
+        description: "Name of the JMeter / UI use case directory"
+        required: true
+        type: string
+
+      slave_count:
+        description: "Number of slave instances to start"
+        required: true
+        type: string
+
+      db_write:
+        description: "Run database write?"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  run-tests:
+    name: Execute Usecase
+    runs-on: ubuntu-latest
+
+    steps:
+      #################################################
+      # Checkout
+      #################################################
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      #################################################
+      # Echo Inputs
+      #################################################
+      - name: Show Inputs
+        run: |
+          echo "Usecase Dir : ${{ github.event.inputs.usecase_dir }}"
+          echo "Slaves      : ${{ github.event.inputs.slave_count }}"
+          echo "DB Write    : ${{ github.event.inputs.db_write }}"
+
+      #################################################
+      # EBILL PLAYWRIGHT FLOW
+      #################################################
+      - name: Run EBILL Playwright on Remote Host
+        if: ${{ github.event.inputs.usecase_dir == 'ebill-usecase' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EBILL_HOST }}
+          username: ${{ secrets.EBILL_SSH_USER }}
+          key: ${{ secrets.EBILL_SSH_KEY }}
+          timeout: 30m
+          script: |
+            set -e
+
+            echo "========== EBILL PLAYWRIGHT =========="
+            cd /opt/tests/ebill-usecase
+
+            echo "Activating venv..."
+            python3 -m venv venv || true
+            source venv/bin/activate
+
+            echo "Installing deps..."
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            playwright install
+
+            echo "Running test..."
+            python run_ebill.py \
+              --slaves ${{ github.event.inputs.slave_count }} \
+              --db-write ${{ github.event.inputs.db_write }}
+
+      #################################################
+      # JMETER FLOW
+      #################################################
+      - name: Run JMeter Distributed Test
+        if: ${{ github.event.inputs.usecase_dir != 'ebill-usecase' }}
+        run: |
+          echo "========== JMETER MODE =========="
+          echo "Usecase: ${{ github.event.inputs.usecase_dir }}"
+
+          USECASE_DIR=${{ github.event.inputs.usecase_dir }}
+
+          if [ ! -d "./jmeter-usecases/$USECASE_DIR" ]; then
+            echo "ERROR: Usecase directory not found!"
+            exit 1
+          fi
+
+          cd ./jmeter-usecases/$USECASE_DIR
+
+          echo "Starting ${{ github.event.inputs.slave_count }} slaves..."
+          ./start_slaves.sh ${{ github.event.inputs.slave_count }}
+
+          echo "Executing test..."
+          ./run_test.sh --db-write=${{ github.event.inputs.db_write }}
+
+      #################################################
+      # Final Status
+      #################################################
+      - name: Workflow Completed
+        run: echo "Execution finished for ${{ github.event.inputs.usecase_dir }}"
